@@ -2,6 +2,9 @@
 
 All notable changes. Versions before 1.0 were numbered v12 to v33.
 
+## v39
+- README: accurate description of sign-in; source published to the public repository
+
 ## v33
 - Release pipeline: signed releases from tags, checksum file, issue templates, README, security policy
 - Cloud backup and device transfer disabled; version text now comes from the build

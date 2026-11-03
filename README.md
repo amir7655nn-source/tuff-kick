@@ -35,13 +35,25 @@ Get the newest `TUFF-KICK-*.apk` from the [Releases](../../releases) page, open 
 ## Privacy and security
 
 - No analytics, no ads, no tracking. The app talks only to Kick, 7TV and Amazon IVS (Kick's video host).
-- Your Kick password is typed into Kick's own page inside the app; the app never sees it.
+- Signing in: you can use the in-app email and password form or Kick's own web login. The form sends your email, password and 2FA code only to kick.com, in the same request the Kick website makes. The app does not save them; it keeps only the session token Kick returns (in the app's private cookie storage).
 - Cloud backup and device transfer are switched off, so cookies and tokens are not copied anywhere. All traffic is HTTPS.
 - Report a security problem privately: see [SECURITY.md](SECURITY.md).
 
+## Source code and build
+
+The source is open (MIT). This repository is a snapshot of it, updated with every release: the Android project is in `native/` and the optional Kick OAuth token worker in `worker/`.
+
+```bash
+cd native
+gradle assembleDebug     # JDK 17, Gradle 8.7
+# APK: native/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Official releases are built and signed by the maintainer with a private key, so a build you make yourself has a different signature and cannot update over a release (uninstall first). Kick OAuth needs a token worker that holds your own Kick client secret (see `worker/`); never put a client secret inside an APK you share.
+
 ## Problems and ideas
 
-Open an [issue](../../issues/new/choose) and say which app version you use (shown at the bottom of the account menu).
+Open an [issue](../../issues/new/choose) and say which app version you use (shown at the bottom of the account menu). Pull requests are welcome; they are reviewed here and merged into the maintainer's copy of the project.
 
 ## Credits
 
@@ -49,4 +61,4 @@ Open an [issue](../../issues/new/choose) and say which app version you use (show
 
 ## License
 
-Free to install and use for personal use. The source code is not published; do not redistribute modified copies. See [LICENSE](LICENSE).
+[MIT](LICENSE). The Amazon IVS player SDK, Kick artwork and other libraries keep their own licences and terms.
