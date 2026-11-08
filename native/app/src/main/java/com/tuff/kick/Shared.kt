@@ -6,6 +6,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -242,13 +244,21 @@ fun StreamRow(list: List<Stream>, nav: Nav, width: Dp = 300.dp) {
 }
 
 @Composable
-fun CatCard(c: Cat, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun CatCard(c: Cat, modifier: Modifier = Modifier, followed: Boolean? = null, onFollow: (() -> Unit)? = null, onClick: () -> Unit) {
     Column(modifier.clickable { onClick() }) {
         Box(Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(RoundedCornerShape(10.dp)).background(Palette.Raised)) {
             if (c.image.isNotEmpty()) {
                 AsyncImage(model = c.image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             }
             if (c.viewers > 0) ViewerBadge(c.viewers, Modifier.padding(6.dp))
+            if (followed != null && onFollow != null) {
+                Box(Modifier.align(Alignment.TopEnd).size(40.dp).clickable { onFollow() }, contentAlignment = Alignment.Center) {
+                    Icon(
+                        painterResource(if (followed) R.drawable.ic_heart else R.drawable.ic_navigation_following_inactive),
+                        if (followed) "Unfollow category" else "Follow category", tint = Color.White, modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
         }
         Text(c.name, color = Palette.Text, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
     }
@@ -297,7 +307,22 @@ fun MediaCard(
 }
 
 @Composable
-fun Tabs(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+fun Tabs(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier, kick: Boolean = false) {
+    if (kick) {
+        // Categories / Following: bold labels side by side from the left edge, underline as wide as the label
+        Row(modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            labels.forEachIndexed { i, l ->
+                Column(Modifier.width(androidx.compose.foundation.layout.IntrinsicSize.Max).clickable { onSelect(i) }) {
+                    Text(
+                        l, color = if (i == selected) Palette.Accent else Palette.Text, fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp, maxLines = 1, modifier = Modifier.padding(top = 10.dp, bottom = 10.dp),
+                    )
+                    Box(Modifier.fillMaxWidth().height(3.dp).background(if (i == selected) Palette.Accent else Color.Transparent))
+                }
+            }
+        }
+        return
+    }
     Row(modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
         labels.forEachIndexed { i, l ->
             Column(Modifier.clickable { onSelect(i) }.padding(horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -311,8 +336,52 @@ fun Tabs(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier:
     }
 }
 
+/** When set, sheets open Kick-style: from this distance below the top edge (the bottom of the player) down to the screen bottom. */
+val LocalSheetTop = androidx.compose.runtime.compositionLocalOf<androidx.compose.ui.unit.Dp?> { null }
+
 @Composable
-fun Sheet(title: String, onClose: () -> Unit, onBack: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
+private fun SheetHeader(title: String, accent: String, onClose: () -> Unit, onBack: (() -> Unit)?) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (onBack != null) {
+            IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_left), "Back", tint = Palette.Text) }
+        } else {
+            Box(Modifier.size(48.dp))
+        }
+        Text(
+            androidx.compose.ui.text.buildAnnotatedString {
+                append(title)
+                if (accent.isNotEmpty()) {
+                    append(" ")
+                    pushStyle(androidx.compose.ui.text.SpanStyle(color = Palette.Accent))
+                    append(accent)
+                    pop()
+                }
+            },
+            color = Palette.Text, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, textAlign = TextAlign.Center, modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onClose) { Icon(painterResource(R.drawable.ic_close), "Close", tint = Palette.Text) }
+    }
+}
+
+@Composable
+fun Sheet(title: String, onClose: () -> Unit, onBack: (() -> Unit)? = null, titleAccent: String = "", content: @Composable ColumnScope.() -> Unit) {
+    val top = LocalSheetTop.current
+    if (top != null) {
+        // Kick style: the player stays visible and untouched, the sheet fills the rest of the screen
+        Box(Modifier.fillMaxSize()) {
+            Column(
+                Modifier.padding(top = top).fillMaxSize()
+                    .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)).background(Color(0xFF141517))
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
+                    .navigationBarsPadding().padding(horizontal = 16.dp),
+            ) {
+                Box(Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp).width(46.dp).height(4.dp).clip(CircleShape).background(Color(0xFF55575C)))
+                SheetHeader(title, titleAccent, onClose, onBack)
+                content()
+            }
+        }
+        return
+    }
     val none = remember { MutableInteractionSource() }
     Box(
         Modifier.fillMaxSize().background(Color(0x99000000)).clickable(interactionSource = none, indication = null) { onClose() },
@@ -323,15 +392,7 @@ fun Sheet(title: String, onClose: () -> Unit, onBack: (() -> Unit)? = null, cont
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
                 .navigationBarsPadding().padding(16.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (onBack != null) {
-                    IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_left), "Back", tint = Palette.Text) }
-                } else {
-                    Box(Modifier.size(48.dp))
-                }
-                Text(title, color = Palette.Text, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
-                IconButton(onClick = onClose) { Icon(painterResource(R.drawable.ic_close), "Close", tint = Palette.Text) }
-            }
+            SheetHeader(title, titleAccent, onClose, onBack)
             content()
         }
     }

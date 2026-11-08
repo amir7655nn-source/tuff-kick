@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import kotlinx.coroutines.launch
@@ -128,6 +131,7 @@ fun WatchScreen(
     val vm: WatchViewModel = viewModel(key = "watch_$slug", factory = WatchFactory(slug))
     val info by vm.info.collectAsStateWithLifecycle()
     val messages by vm.messages.collectAsStateWithLifecycle()
+    TrackMyBadges(messages)
     val status by vm.status.collectAsStateWithLifecycle()
     val connected by vm.connected.collectAsStateWithLifecycle()
     val emotes by vm.emotes.collectAsStateWithLifecycle()
@@ -177,6 +181,12 @@ fun WatchScreen(
         }
     }
 
+    val dens = androidx.compose.ui.platform.LocalDensity.current
+    val statusDp = with(dens) { WindowInsets.statusBars.getTop(dens).toDp() }
+    // portrait: sheets open below the player (Kick style) instead of covering it
+    val sheetTop: androidx.compose.ui.unit.Dp? = if (landscape) null else statusDp + (if (chatOnly) 0.dp else (LocalConfiguration.current.screenWidthDp * 9f / 16f).dp)
+    val channelId = (info as? Load.Ok)?.data?.id ?: 0L
+    androidx.compose.runtime.CompositionLocalProvider(LocalSheetTop provides sheetTop) {
     Box(Modifier.fillMaxSize().background(Palette.Ink)) {
         when (val i = info) {
             is Load.Idle, is Load.Loading -> Box(Modifier.fillMaxSize().statusBarsPadding()) { SkeletonWatch() }
@@ -237,31 +247,36 @@ fun WatchScreen(
                         pinned = pinned, prediction = prediction,
                         emoteScale = EMOTE_SCALES[emoteLevel.coerceIn(0, 3)],
                         onUserClick = { userMsg = it },
-                        onViewPrediction = { openUrl(ctx, "https://kick.com/" + ci.slug) },
+                        onViewPrediction = { sheet = 9 },
                         onLogin = onLogin,
                         onReply = { vm.setReply(it) },
                         onSend = { vm.send(it) },
                         onClearError = { vm.clearError() },
                         onPoints = { if (!loggedIn) onLogin() else sheet = 7 },
-                        onKicks = { openUrl(ctx, "https://kick.com/" + ci.slug) },
-                        onPeople = { sheet = 8 },
+                        onKicks = { sheet = 8 },
+                        onPeople = { sheet = 10 },
                         onChatSettings = { sheet = 4 },
                         onLongMsg = { modMsg = it },
                     )
                 }
+                // the player and chat are moved (not recreated) when the screen rotates, so the stream keeps playing
+                val playerNow by androidx.compose.runtime.rememberUpdatedState(player)
+                val chatNow by androidx.compose.runtime.rememberUpdatedState(chat)
+                val movablePlayer = remember { androidx.compose.runtime.movableContentOf { m: Modifier -> playerNow(m) } }
+                val movableChat = remember { androidx.compose.runtime.movableContentOf { m: Modifier -> chatNow(m) } }
                 if (landscape) {
                     Row(Modifier.fillMaxSize().background(Palette.Ink)) {
-                        player(Modifier.weight(1.6f).fillMaxHeight())
-                        chat(Modifier.weight(1f).fillMaxHeight())
+                        movablePlayer(Modifier.weight(1.6f).fillMaxHeight())
+                        movableChat(Modifier.weight(1f).fillMaxHeight())
                     }
                 } else {
                     Column(Modifier.fillMaxSize().background(Palette.Ink).statusBarsPadding()) {
-                        if (!chatOnly) player(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+                        if (!chatOnly) movablePlayer(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
                         else Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_left), "Back", tint = Color.White) }
                             Text(ci.name, color = Palette.Text, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
                         }
-                        chat(Modifier.weight(1f).fillMaxWidth())
+                        movableChat(Modifier.weight(1f).fillMaxWidth())
                     }
                 }
             }
@@ -343,22 +358,26 @@ fun WatchScreen(
         if (sheet == 4) {
             Sheet("Chat Settings", onClose = { sheet = 0 }) {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    OptionRow("Text size", trailing = when (textSize) { 0 -> "Small"; 2 -> "Large"; else -> "Normal" }) {
-                        textSize = (textSize + 1) % 3; prefs.edit().putInt("chat_text", textSize).apply()
+                    SettingsHeading("Chat")
+                    SettingsGroup {
+                        SettingItem("Text size", when (textSize) { 0 -> "Small"; 2 -> "Large"; else -> "Normal" }) {
+                            textSize = (textSize + 1) % 3; prefs.edit().putInt("chat_text", textSize).apply()
+                        }
+                        SettingItem("Emote size", EMOTE_LABELS[emoteLevel.coerceIn(0, 3)]) {
+                            emoteLevel = (emoteLevel + 1) % 4; prefs.edit().putInt("chat_emote", emoteLevel).apply()
+                        }
+                        SettingToggle("Animated emotes in picker", remember(tick2) { prefs.getBoolean("picker_anim", true) }) {
+                            prefs.edit().putBoolean("picker_anim", it).apply(); tick2++
+                        }
+                        SettingToggle("Chat only", chatOnly) { chatOnly = it }
+                        SettingToggle("Show leaderboard", showLb) { showLb = it; savePref("chat_lb", it) }
+                        SettingToggle("Show quick emotes", quick) { quick = it; savePref("chat_quick", it) }
+                        SettingToggle("Low power mode", lowPower) { lowPower = it; savePref("chat_low", it) }
+                        SettingToggle("Show message timestamps", showTimes) { showTimes = it; savePref("chat_times", it) }
+                        SettingItem("Muted users", if (muted.isEmpty()) "" else muted.size.toString()) { sheet = 5 }
+                        SettingItem("Identity", last = true) { sheet = 6 }
                     }
-                    OptionRow("Emote size", trailing = EMOTE_LABELS[emoteLevel.coerceIn(0, 3)]) {
-                        emoteLevel = (emoteLevel + 1) % 4; prefs.edit().putInt("chat_emote", emoteLevel).apply()
-                    }
-                    ToggleRow("Animated emotes in picker", remember(tick2) { prefs.getBoolean("picker_anim", true) }) {
-                        prefs.edit().putBoolean("picker_anim", it).apply(); tick2++
-                    }
-                    ToggleRow("Chat only", chatOnly) { chatOnly = it }
-                    ToggleRow("Show leaderboard", showLb) { showLb = it; savePref("chat_lb", it) }
-                    ToggleRow("Show quick emotes", quick) { quick = it; savePref("chat_quick", it) }
-                    ToggleRow("Low power mode", lowPower) { lowPower = it; savePref("chat_low", it) }
-                    ToggleRow("Show message timestamps", showTimes) { showTimes = it; savePref("chat_times", it) }
-                    OptionRow("Muted users", trailing = if (muted.isEmpty()) "" else muted.size.toString()) { sheet = 5 }
-                    OptionRow("Identity") { sheet = 6 }
+                    Spacer(Modifier.height(16.dp))
                 }
             }
         }
@@ -370,14 +389,12 @@ fun WatchScreen(
                 }
             }
         }
-        if (sheet == 6) {
-            Sheet("Identity", onClose = { sheet = 0 }, onBack = { sheet = 4 }) {
-                Text("Your chat name, color and badges are part of your Kick account.", color = Palette.Muted, modifier = Modifier.padding(12.dp))
-                OptionRow("Open identity settings on Kick") { openUrl(ctx, "https://kick.com/dashboard/settings/profile"); sheet = 0 }
-            }
-        }
+        if (sheet == 6) IdentitySheet(slug, channelId, messages, onClose = { sheet = 0 }, onBack = { sheet = 4 })
         if (sheet == 7) PointsSheet(slug, points, onClose = { sheet = 0 }, onBalance = { points = it })
         if (sheet == 8) LeaderboardSheet(slug, onClose = { sheet = 0 })
+        if (sheet == 9) PointsSheet(slug, points, onClose = { sheet = 0 }, onBalance = { points = it }, startOnPrediction = true)
+        if (sheet == 10) ChattersSheet(messages, onClose = { sheet = 0 })
+    }
     }
 }
 
@@ -393,60 +410,6 @@ fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
             checked = checked, onCheckedChange = onChange,
             colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = Palette.Accent, checkedThumbColor = Palette.AccentInk),
         )
-    }
-}
-
-@Composable
-fun PointsSheet(slug: String, balance: Int?, onClose: () -> Unit, onBalance: (Int?) -> Unit) {
-    val ctx = LocalContext.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    var tick by remember { mutableStateOf(0) }
-    val l = rememberLoader("vrewards", slug, tick) { Browse.viewerRewards(slug) }
-    var pick by remember { mutableStateOf<Browse.ViewerReward?>(null) }
-    var input by remember { mutableStateOf("") }
-    Sheet("Channel points", onClose = onClose) {
-        Text(
-            if (balance != null) "Your balance: " + balance + " points" else "Balance unavailable",
-            color = Palette.Accent, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-        )
-        val p = pick
-        if (p != null) {
-            Text(p.title, color = Palette.Text, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(8.dp))
-            if (p.description.isNotEmpty()) Text(p.description, color = Palette.Muted, modifier = Modifier.padding(horizontal = 8.dp))
-            if (p.needsInput) TextField(
-                value = input, onValueChange = { input = it }, placeholder = { Text("Your message") },
-                modifier = Modifier.fillMaxWidth().padding(8.dp),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Palette.Raised, unfocusedContainerColor = Palette.Raised,
-                    focusedTextColor = Palette.Text, unfocusedTextColor = Palette.Text,
-                    focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, cursorColor = Palette.Accent,
-                ),
-            )
-            Button(
-                onClick = {
-                    scope.launch {
-                        val msg = try {
-                            Browse.redeem(slug, p.id, input)
-                            onBalance(try { Browse.myPoints(slug) } catch (e: Exception) { null })
-                            "Redeemed"
-                        } catch (e: KickException) { e.code.take(100) } catch (e: Exception) { "Failed" }
-                        android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_LONG).show()
-                        pick = null; input = ""
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().padding(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Palette.Accent, contentColor = Palette.AccentInk),
-            ) { Text("Redeem for " + p.cost, fontWeight = FontWeight.Bold) }
-        } else {
-            Column(Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.5f).dp).verticalScroll(rememberScrollState())) {
-                LoadView(l) { list ->
-                    if (list.isEmpty()) Text("This channel has no rewards.", color = Palette.Muted, modifier = Modifier.padding(12.dp))
-                    list.forEach { r ->
-                        OptionRow(r.title, r.description, trailing = r.cost.toString() + if (r.enabled) "" else " · paused") { if (r.enabled) pick = r }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -773,6 +736,8 @@ fun ChatPanel(
     val listState = rememberLazyListState()
     var text by remember { mutableStateOf("") }
     var picker by remember { mutableStateOf(false) }
+    var emoteInfo by remember { mutableStateOf<Seg.Emote?>(null) }
+    emoteInfo?.let { EmoteInfoDialog(it) { emoteInfo = null } }
 
     val emoteHolder = remember(emotes) { EmoteHolder(emotes) }
     // one stable callback, so the picker is not recomposed together with every new chat message
@@ -814,7 +779,7 @@ fun ChatPanel(
         Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
                 items(messages, key = { it.id + it.userId + it.hashCode() }) { m ->
-                    MessageRow(m, textSize, showTimes, onLongPress = { onLongMsg(m) }, emoteScale = emoteScale, onUserClick = { onUserClick(m) })
+                    MessageRow(m, textSize, showTimes, onLongPress = { onLongMsg(m) }, emoteScale = emoteScale, onUserClick = { onUserClick(m) }, onEmote = { emoteInfo = it })
                 }
             }
             if (!stick && messages.isNotEmpty()) {
@@ -924,7 +889,7 @@ fun ChatPanel(
                         )
                     }
                     Box(Modifier.padding(bottom = 6.dp).size(40.dp).clip(CircleShape).clickable { picker = !picker }, contentAlignment = Alignment.Center) {
-                        Text("☺", color = if (picker) Palette.Accent else Palette.Text, fontSize = 26.sp)
+                        Icon(painterResource(R.drawable.ic_emoji), "Emotes", tint = if (picker) Palette.Accent else Color.White, modifier = Modifier.size(26.dp))
                     }
                 }
                 Box(
@@ -937,20 +902,16 @@ fun ChatPanel(
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.clip(RoundedCornerShape(10.dp)).clickable { onPoints() }.padding(vertical = 6.dp, horizontal = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(14.dp).clip(CircleShape).background(Palette.Accent))
-                Text("  " + (if (points != null) fmtViewers(points) else "Points"), color = Palette.Text, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                Icon(painterResource(R.drawable.ic_points), null, tint = Color(0xFFA6F58F), modifier = Modifier.size(20.dp))
+                Text("  " + (if (points != null) fmtViewers(points) else "Points"), color = Palette.Text, fontWeight = FontWeight.Medium, fontSize = 15.sp)
             }
-            Row(Modifier.padding(start = 16.dp).clip(RoundedCornerShape(10.dp)).clickable { onKicks() }.padding(vertical = 6.dp, horizontal = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(22.dp).clip(RoundedCornerShape(6.dp)).background(Palette.Accent), contentAlignment = Alignment.Center) {
-                    Text("K", color = Palette.AccentInk, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
-                }
-                Text("  Kicks", color = Palette.Text, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+            Box(Modifier.padding(start = 16.dp).clip(RoundedCornerShape(10.dp)).clickable { onKicks() }.padding(6.dp)) {
+                androidx.compose.foundation.Image(painterResource(R.drawable.ic_kick_k), "Kicks", Modifier.size(22.dp))
             }
             Box(Modifier.weight(1f))
-            Text(fmtViewers(ci.viewers), color = Palette.Muted, fontSize = 13.sp)
-            IconButton(onClick = onPeople) { Icon(painterResource(R.drawable.ic_eye), "Leaderboard", tint = Palette.Text) }
+            IconButton(onClick = onPeople) { Icon(painterResource(R.drawable.ic_chatters), "Active chatters", tint = Color.White, modifier = Modifier.size(22.dp)) }
             IconButton(onClick = onChatSettings) { Icon(painterResource(R.drawable.ic_gear), "Chat settings", tint = Palette.Text) }
         }
     }
@@ -981,7 +942,7 @@ fun emoteDims(e: Seg.Emote, scale: Float): Pair<Float, Float> {
 }
 
 @Composable
-fun MessageRow(m: ChatMsg, textSize: Float, showTime: Boolean, onLongPress: () -> Unit, emoteScale: Float = 1f, onUserClick: () -> Unit = {}) {
+fun MessageRow(m: ChatMsg, textSize: Float, showTime: Boolean, onLongPress: () -> Unit, emoteScale: Float = 1f, onUserClick: () -> Unit = {}, onEmote: (Seg.Emote) -> Unit = {}) {
     val inline = HashMap<String, InlineTextContent>()
     val bs = (textSize + 4f).sp
     var maxEmote = 0f
@@ -1018,7 +979,7 @@ fun MessageRow(m: ChatMsg, textSize: Float, showTime: Boolean, onLongPress: () -
         userEnd = length
         m.seg.forEachIndexed { i, s ->
             when (s) {
-                is Seg.Text -> if (m.deleted) withStyle(SpanStyle(color = Palette.Muted)) { append(s.v) } else append(s.v)
+                is Seg.Text -> if (m.deleted) withStyle(SpanStyle(color = Palette.Muted)) { append(softBreaks(s.v)) } else append(softBreaks(s.v))
                 is Seg.Emote -> {
                     val id = "e$i"
                     val (ew, eh) = emoteDims(s, emoteScale)
@@ -1026,12 +987,23 @@ fun MessageRow(m: ChatMsg, textSize: Float, showTime: Boolean, onLongPress: () -
                     inline[id] = InlineTextContent(Placeholder(ew.sp, eh.sp, PlaceholderVerticalAlign.TextCenter)) {
                         AsyncImage(model = s.url, contentDescription = s.name, modifier = Modifier.fillMaxSize())
                     }
+                    pushStringAnnotation("emote", i.toString())
                     appendInlineContent(id, s.name)
+                    pop()
                 }
             }
         }
     }
-    Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+    val me = Me.name
+    val tagged = me.isNotEmpty() && !m.deleted && !m.name.equals(me, true) && (
+        m.reply?.username.equals(me, true) ||
+            m.seg.any { it is Seg.Text && Regex("@" + Regex.escape(me) + "(?![A-Za-z0-9_])", RegexOption.IGNORE_CASE).containsMatchIn(it.v) }
+        )
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 5.dp).let {
+            if (tagged) it.clip(RoundedCornerShape(10.dp)).border(1.5.dp, Palette.Accent, RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 4.dp) else it
+        },
+    ) {
         if (m.reply != null && !m.deleted) {
             Text(
                 "↩ @" + m.reply.username + ": " + m.reply.content,
@@ -1043,13 +1015,22 @@ fun MessageRow(m: ChatMsg, textSize: Float, showTime: Boolean, onLongPress: () -
             text, inlineContent = inline, color = Palette.Text, fontSize = textSize.sp,
             lineHeight = maxOf(textSize + 9f, maxEmote + 4f).sp,
             onTextLayout = { layoutHolder[0] = it },
-            modifier = Modifier.pointerInput(m.id) {
+            modifier = Modifier.pointerInput(m.id, text) {
                 detectTapGestures(
                     onLongPress = { onLongPress() },
                     // tapping the badges/name part opens the user card
                     onTap = { pos ->
-                        val off = layoutHolder[0]?.getOffsetForPosition(pos)
-                        if (!m.deleted && off != null && off >= userStart && off <= userEnd) onUserClick()
+                        val lr = layoutHolder[0]
+                        val off = lr?.getOffsetForPosition(pos)
+                        // a tap on an emote shows its card
+                        var hit: Seg.Emote? = null
+                        if (lr != null && !m.deleted && text.length > 0 && off != null) {
+                            val o2 = off.coerceIn(0, text.length - 1)
+                            val an = text.getStringAnnotations("emote", o2, o2 + 1).firstOrNull()
+                            if (an != null && lr.getBoundingBox(o2).inflate(8f).contains(pos)) hit = m.seg.getOrNull(an.item.toIntOrNull() ?: -1) as? Seg.Emote
+                        }
+                        if (hit != null) onEmote(hit)
+                        else if (!m.deleted && off != null && off >= userStart && off <= userEnd) onUserClick()
                     },
                 )
             },

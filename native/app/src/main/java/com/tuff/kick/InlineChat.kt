@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
@@ -38,6 +40,7 @@ fun InlineChat(slug: String, loggedIn: Boolean, onLogin: () -> Unit, onProfile: 
     val vm: WatchViewModel = viewModel(key = "watch_$slug", factory = WatchFactory(slug))
     val info by vm.info.collectAsStateWithLifecycle()
     val messages by vm.messages.collectAsStateWithLifecycle()
+    TrackMyBadges(messages)
     val status by vm.status.collectAsStateWithLifecycle()
     val connected by vm.connected.collectAsStateWithLifecycle()
     val emotes by vm.emotes.collectAsStateWithLifecycle()
@@ -86,14 +89,14 @@ fun InlineChat(slug: String, loggedIn: Boolean, onLogin: () -> Unit, onProfile: 
                     pinned = pinned, prediction = prediction,
                     emoteScale = EMOTE_SCALES[emoteLevel],
                     onUserClick = { userMsg = it },
-                    onViewPrediction = { openUrl(ctx, "https://kick.com/" + ci.slug) },
+                    onViewPrediction = { sheet = 9 },
                     onLogin = onLogin,
                     onReply = { vm.setReply(it) },
                     onSend = { vm.send(it) },
                     onClearError = { vm.clearError() },
                     onPoints = { if (!loggedIn) onLogin() else sheet = 7 },
-                    onKicks = { openUrl(ctx, "https://kick.com/" + ci.slug) },
-                    onPeople = { sheet = 8 },
+                    onKicks = { sheet = 8 },
+                    onPeople = { sheet = 10 },
                     onChatSettings = { sheet = 4 },
                     onLongMsg = { modMsg = it },
                 )
@@ -126,21 +129,33 @@ fun InlineChat(slug: String, loggedIn: Boolean, onLogin: () -> Unit, onProfile: 
     }
     if (sheet == 4) FullSheet(onDismiss = { sheet = 0 }) {
         Sheet("Chat Settings", onClose = { sheet = 0 }) {
-            OptionRow("Text size", trailing = when (textLevel) { 0 -> "Small"; 2 -> "Large"; else -> "Normal" }) {
-                prefs.edit().putInt("chat_text", (textLevel + 1) % 3).apply(); tick++
+            androidx.compose.foundation.layout.Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                SettingsHeading("Chat")
+                SettingsGroup {
+                    SettingItem("Text size", when (textLevel) { 0 -> "Small"; 2 -> "Large"; else -> "Normal" }) {
+                        prefs.edit().putInt("chat_text", (textLevel + 1) % 3).apply(); tick++
+                    }
+                    SettingItem("Emote size", EMOTE_LABELS[emoteLevel]) {
+                        prefs.edit().putInt("chat_emote", (emoteLevel + 1) % 4).apply(); tick++
+                    }
+                    SettingToggle("Animated emotes in picker", remember(tick) { prefs.getBoolean("picker_anim", true) }) {
+                        prefs.edit().putBoolean("picker_anim", it).apply(); tick++
+                    }
+                    SettingToggle("Show quick emotes", quick) { prefs.edit().putBoolean("chat_quick", it).apply(); tick++ }
+                    SettingToggle("Show message timestamps", showTimes) { prefs.edit().putBoolean("chat_times", it).apply(); tick++ }
+                    SettingItem("Identity", last = true) { sheet = 6 }
+                }
+                androidx.compose.foundation.layout.Spacer(Modifier.height(16.dp))
             }
-            OptionRow("Emote size", trailing = EMOTE_LABELS[emoteLevel]) {
-                prefs.edit().putInt("chat_emote", (emoteLevel + 1) % 4).apply(); tick++
-            }
-            ToggleRow("Animated emotes in picker", remember(tick) { prefs.getBoolean("picker_anim", true) }) {
-                prefs.edit().putBoolean("picker_anim", it).apply(); tick++
-            }
-            ToggleRow("Show quick emotes", quick) { prefs.edit().putBoolean("chat_quick", it).apply(); tick++ }
-            ToggleRow("Show message timestamps", showTimes) { prefs.edit().putBoolean("chat_times", it).apply(); tick++ }
         }
+    }
+    if (sheet == 6) FullSheet(onDismiss = { sheet = 0 }) {
+        IdentitySheet(slug, (info as? Load.Ok)?.data?.id ?: 0L, messages, onClose = { sheet = 0 }, onBack = { sheet = 4 })
     }
     if (sheet == 7) FullSheet(onDismiss = { sheet = 0 }) { PointsSheet(slug, points, onClose = { sheet = 0 }, onBalance = { points = it }) }
     if (sheet == 8) FullSheet(onDismiss = { sheet = 0 }) { LeaderboardSheet(slug, onClose = { sheet = 0 }) }
+    if (sheet == 10) FullSheet(onDismiss = { sheet = 0 }) { ChattersSheet(messages, onClose = { sheet = 0 }) }
+    if (sheet == 9) FullSheet(onDismiss = { sheet = 0 }) { PointsSheet(slug, points, onClose = { sheet = 0 }, onBalance = { points = it }, startOnPrediction = true) }
 }
 
 @Composable

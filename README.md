@@ -57,6 +57,7 @@ Open an [issue](../../issues/new/choose) and say which app version you use (show
 
 ## Credits
 
+
 [Kick](https://kick.com), [7TV](https://7tv.app), [Amazon IVS Player](https://docs.aws.amazon.com/ivs/), [AndroidX Media3](https://developer.android.com/media/media3), [Coil](https://coil-kt.github.io/coil/), [OkHttp](https://square.github.io/okhttp/), Jetpack Compose.
 
 ## License

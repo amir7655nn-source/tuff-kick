@@ -74,6 +74,8 @@ object ChatExtras {
                 PredOutcome(
                     firstStr(ob, "title", "name", "label"),
                     firstNum(ob, "total_vote_amount", "total_points", "vote_amount", "total_amount", "amount", "total", "votes", "total_votes"),
+                    ob.opt("id")?.toString().orEmpty(),
+                    firstNum(ob, "vote_count", "votes_count", "voters", "total_voters"),
                 )
             )
         }
@@ -83,6 +85,9 @@ object ChatExtras {
             title = firstStr(o, "title", "name", "question"),
             state = firstStr(o, "state", "status").lowercase(),
             outcomes = outs,
+            winnerId = o.opt("winning_outcome_id")?.takeIf { it != JSONObject.NULL }?.toString().orEmpty()
+                .ifEmpty { o.opt("winner_outcome_id")?.takeIf { it != JSONObject.NULL }?.toString().orEmpty() }
+                .ifEmpty { o.opt("winning_outcome")?.let { w -> (w as? JSONObject)?.opt("id")?.toString() ?: w.toString() }?.takeIf { it != "null" }.orEmpty() },
         )
     }
 
@@ -93,6 +98,17 @@ object ChatExtras {
         KickApi.getJsonPublic(url, false)
     } catch (e: Exception) {
         null
+    }
+
+    /** The newest prediction of the channel in any state (running or finished). */
+    suspend fun latest(slug: String): Prediction? {
+        for (u in listOf("$B/api/v2/channels/$slug/predictions/latest", "$B/api/v2/channels/$slug/predictions", "$B/api/v2/channels/$slug/prediction")) {
+            val dd = get(u) ?: continue
+            val p = try { parsePrediction(dd) } catch (e: Exception) { null }
+            if (p != null) return p
+        }
+        val room = get("$B/api/v2/channels/$slug/chatroom")
+        return try { parsePrediction(room) } catch (e: Exception) { null }
     }
 
     suspend fun load(slug: String, tv: Map<String, EmoteItem>, subBadges: JSONArray?): Pair<PinnedMsg?, Prediction?> {

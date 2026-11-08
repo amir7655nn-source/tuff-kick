@@ -53,9 +53,9 @@ sealed interface ChatEvent {
 
 data class PinnedMsg(val msg: ChatMsg, val by: String)
 
-data class PredOutcome(val title: String, val amount: Long)
+data class PredOutcome(val title: String, val amount: Long, val id: String = "", val votes: Long = 0)
 
-data class Prediction(val id: String, val title: String, val state: String, val outcomes: List<PredOutcome>)
+data class Prediction(val id: String, val title: String, val state: String, val outcomes: List<PredOutcome>, val winnerId: String = "")
 
 // ------------------------------------------------------- message rendering --
 object ChatRender {

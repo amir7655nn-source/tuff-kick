@@ -1,6 +1,7 @@
 package com.tuff.kick
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -58,6 +60,10 @@ fun App(vm: AppViewModel = viewModel()) {
     var tab by remember { mutableIntStateOf(0) }       // 0 home, 1 browse, 2 following, 3 search
     var showLogin by remember { mutableStateOf(false) }
     var showAccount by remember { mutableStateOf(false) }
+    androidx.compose.runtime.SideEffect { Me.name = username }
+    val appCtx = androidx.compose.ui.platform.LocalContext.current
+    var update by remember { mutableStateOf<Updater.Update?>(null) }
+    LaunchedEffect(Unit) { update = Updater.check(appCtx) }
     var showGoTo by remember { mutableStateOf(false) }
     var showOAuth by remember { mutableStateOf(false) }
     var linkedTick by remember { mutableIntStateOf(0) }
@@ -116,10 +122,31 @@ fun App(vm: AppViewModel = viewModel()) {
                 }
             }
         }
+        update?.let { u ->
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { update = null },
+                containerColor = Palette.Panel,
+                title = { Text("New version " + u.tag, color = Palette.Text, fontWeight = FontWeight.Bold) },
+                text = { Text(if (u.notes.isBlank()) "A new version of TUFF is available." else u.notes, color = Palette.Muted) },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        update = null
+                        try { appCtx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u.url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { }
+                    }) { Text("Update", color = Palette.Accent, fontWeight = FontWeight.Bold) }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { Updater.skip(appCtx, u.tag); update = null }) { Text("Later", color = Palette.Muted) }
+                },
+            )
+        }
         if (showAccount) {
             Sheet(if (username.isNotEmpty()) username else "Account", onClose = { showAccount = false }) {
                 OptionRow("Sign out") { vm.logout(); showAccount = false }
                 OptionRow("Refresh") { vm.refreshAll(); showAccount = false }
+                run {
+                    val tctx = androidx.compose.ui.platform.LocalContext.current
+                    OptionRow("Telegram", if (AppLinks.TELEGRAM.isEmpty()) "" else "@" + AppLinks.TELEGRAM) { AppLinks.openTelegram(tctx); showAccount = false }
+                }
                 val linked = remember(linkedTick) { KickOAuth.linked() }
                 OptionRow(
                     "Official Kick API",
@@ -141,8 +168,15 @@ fun App(vm: AppViewModel = viewModel()) {
 @Composable
 fun TopBar(loggedIn: Boolean, username: String, avatar: String, onLogin: () -> Unit, onAccount: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("TUFF", color = Palette.Accent, fontWeight = FontWeight.ExtraBold, fontSize = 28.sp)
+        Image(painterResource(R.drawable.tuff_logo), "TUFF", Modifier.height(26.dp), contentScale = androidx.compose.ui.layout.ContentScale.Fit)
         Box(Modifier.weight(1f))
+        run {
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            Box(
+                Modifier.padding(end = 10.dp).size(42.dp).clip(CircleShape).background(Palette.Raised).clickable { AppLinks.openTelegram(ctx) },
+                contentAlignment = Alignment.Center,
+            ) { Icon(painterResource(R.drawable.ic_telegram), "Telegram", tint = Color(0xFF4FB5F0), modifier = Modifier.size(22.dp)) }
+        }
         if (loggedIn) {
             Avatar(avatar, username.ifEmpty { "•" }, 42.dp, modifier = Modifier.clip(CircleShape).clickable { onAccount() })
         } else {

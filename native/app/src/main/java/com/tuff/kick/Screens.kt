@@ -121,12 +121,13 @@ fun BrowseScreen(nav: Nav, bottomPad: androidx.compose.ui.unit.Dp) {
     var sort by remember { mutableIntStateOf(prefs.getInt("br_sort", 0)) }          // 0 recommended, 1 featured, 2 viewers
     var sheet by remember { mutableIntStateOf(0) }      // 0 none, 1 prefs, 2 language, 3 clip prefs
     var clipSort by remember { mutableStateOf("view") }
+    var catFollows by remember { mutableStateOf(CatFollows.load()) }
     var clipPeriod by remember { mutableStateOf("all") }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Tabs(listOf("Categories", "Livestreams", "Clips"), tab, { tab = it }, Modifier.weight(1f))
+                Tabs(listOf("Categories", "Livestreams", "Clips"), tab, { tab = it }, Modifier.weight(1f), kick = true)
                 if (tab != 0) {
                     IconButton(onClick = { sheet = if (tab == 1) 1 else 3 }) {
                         Icon(painterResource(R.drawable.ic_filter), "Filter", tint = Palette.Text)
@@ -145,7 +146,12 @@ fun BrowseScreen(nav: Nav, bottomPad: androidx.compose.ui.unit.Dp) {
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier.fillMaxSize(),
                         ) {
-                            items(list, key = { it.slug }) { c -> CatCard(c) { nav.category(c.slug, c.name) } }
+                            items(list, key = { it.slug }) { c ->
+                                CatCard(
+                                    c, followed = c.slug in catFollows,
+                                    onFollow = { catFollows = if (c.slug in catFollows) catFollows - c.slug else catFollows + c.slug; CatFollows.save(catFollows) },
+                                ) { nav.category(c.slug, c.name) }
+                            }
                         }
                     }
                 }
@@ -397,7 +403,7 @@ fun FollowingScreen(
         return
     }
     Column(Modifier.fillMaxSize()) {
-        Tabs(listOf("Livestreams", "Channels"), tab, { tab = it })
+        Tabs(listOf("Livestreams", "Channels"), tab, { tab = it }, kick = true)
         Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Line))
         if (tab == 0) {
             when (following) {

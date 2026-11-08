@@ -505,6 +505,22 @@ object Browse {
     }
 
     private val avatarCache = HashMap<String, String>()
+    private val avatarGate = kotlinx.coroutines.sync.Semaphore(4)
+
+    /** Profile picture of any user by name (cached; empty when none). */
+    suspend fun avatarOf(username: String): String {
+        val k = username.lowercase().replace('_', '-')
+        synchronized(avatarCache) { avatarCache[k] ?: avatarCache[username.lowercase()] }?.let { return it }
+        return avatarGate.withPermit {
+            val p = try {
+                val d = KickApi.getJsonPublic("$B/api/v2/channels/$k", false) as? JSONObject
+                val u = d?.optJSONObject("user")
+                u?.opt("profile_pic").img().ifEmpty { u?.opt("profilepic").img() }.ifEmpty { d?.opt("profile_picture").img() }
+            } catch (e: Exception) { "" }
+            synchronized(avatarCache) { avatarCache[k] = p }
+            p
+        }
+    }
 
     private fun streamRow(r: JSONObject): Stream? {
         val ch = r.optJSONObject("channel")
@@ -733,28 +749,57 @@ object Browse {
 
     suspend fun categories(): List<Cat> {
         catCache?.let { return it }
-        if (KickOAuth.available()) {
-            try {
-                val off = PublicApi.categories(null, 100)
-                if (off.isNotEmpty()) { catCache = off; return off }
-            } catch (e: KickException) {
-            }
-        }
-        val got = try {
+        // the full list (official API when available) plus live viewer counts taken from Kick's own lists
+        val unofficial = try {
             val d = first(listOf("$B/api/v1/categories/top", "$B/api/v1/categories-top", "$B/api/v1/subcategories?limit=60", "$B/api/v1/categories"))
-            rows(d).mapNotNull { catRow(it) }
+            val all = ArrayList(rows(d).mapNotNull { catRow(it) })
+            // more pages of the same list: lower categories carry their viewer counts there
+            for (pg in 2..6) {
+                val more = try {
+                    rows(first(listOf("$B/api/v1/subcategories?limit=60&page=$pg"))).mapNotNull { catRow(it) }
+                } catch (e: KickException) {
+                    break
+                }
+                if (more.isEmpty() || more.all { m -> all.any { it.slug == m.slug } }) break
+                all.addAll(more.filter { m -> all.none { it.slug == m.slug } })
+            }
+            all.toList()
         } catch (e: KickException) {
             emptyList()
         }
-        val res = if (got.isNotEmpty()) got else {
-            val m = LinkedHashMap<String, Cat>()
-            for (s in live(null, 3)) {
-                if (s.categorySlug.isEmpty()) continue
-                val c = m[s.categorySlug]
-                m[s.categorySlug] = Cat(s.categorySlug, s.category, (c?.viewers ?: 0) + s.viewers, "", emptyList())
+        var official = emptyList<Cat>()
+        if (KickOAuth.available()) {
+            try {
+                official = PublicApi.categories(null, 100)
+            } catch (e: KickException) {
             }
-            m.values.sortedByDescending { it.viewers }
         }
+        val views = HashMap<String, Int>()
+        for (c in unofficial) { views[c.slug] = c.viewers; views[c.name.lowercase()] = c.viewers }
+        try {
+            val sums = HashMap<String, Int>()
+            for (st in live(null, 8)) {
+                if (st.categorySlug.isEmpty()) continue
+                sums[st.categorySlug] = (sums[st.categorySlug] ?: 0) + st.viewers
+                sums[st.category.lowercase()] = (sums[st.category.lowercase()] ?: 0) + st.viewers
+            }
+            for ((k, v) in sums) if ((views[k] ?: 0) < v) views[k] = v
+        } catch (e: KickException) {
+        }
+        var res = if (official.size >= unofficial.size) official else unofficial
+        if (res.isEmpty()) {
+            val m = LinkedHashMap<String, Cat>()
+            for (st in live(null, 3)) {
+                if (st.categorySlug.isEmpty()) continue
+                val c = m[st.categorySlug]
+                m[st.categorySlug] = Cat(st.categorySlug, st.category, (c?.viewers ?: 0) + st.viewers, "", emptyList())
+            }
+            res = m.values.toList()
+        }
+        res = res.map { c ->
+            val v = maxOf(c.viewers, views[c.slug] ?: 0, views[c.name.lowercase()] ?: 0)
+            if (v == c.viewers) c else c.copy(viewers = v)
+        }.sortedByDescending { it.viewers }
         if (res.isEmpty()) throw KickException("no_categories")
         catCache = res
         return res
@@ -942,6 +987,27 @@ object Browse {
             val msg = try { JSONObject(t).optString("message") } catch (e: Exception) { "" }
             throw KickException(if (msg.isNotEmpty()) msg else "redeem_http_$s")
         }
+    }
+
+    /** Places a channel-points prediction. The website API is not documented, so a few known shapes are tried. */
+    suspend fun vote(slug: String, predictionId: String, outcomeId: String, amount: Int) {
+        val body = JSONObject().put("outcome_id", outcomeId.toLongOrNull() ?: outcomeId).put("amount", amount).toString()
+        var last = 0
+        for (u in listOf(
+            "$B/api/v2/channels/$slug/predictions/$predictionId/vote",
+            "$B/api/v2/predictions/$predictionId/vote",
+            "$B/api/v2/channels/$slug/predictions/vote",
+        )) {
+            val b = if (u.endsWith("/predictions/vote")) JSONObject(body).put("prediction_id", predictionId).toString() else body
+            val (s, t) = KickBridge.request("POST", u, KickApi.authHeaders(), b)
+            if (s in 200..299) return
+            last = s
+            if (s != 404 && s != 405) {
+                val msg = try { JSONObject(t).optString("message") } catch (e: Exception) { "" }
+                throw KickException(if (msg.isNotEmpty()) msg else "vote_http_$s")
+            }
+        }
+        throw KickException("vote_http_$last")
     }
 
     /** Top gifters of a channel: pairs of (name, kicks). Empty when the site does not return any. */
