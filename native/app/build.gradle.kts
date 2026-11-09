@@ -11,7 +11,9 @@ android {
         applicationId = "com.tuff.kick.native"
         minSdk = 24
         targetSdk = 34
-        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
+        // minutes since the build epoch: always increases, also between the two workflows (their run numbers are separate counters,
+        // and a release with a lower versionCode than the installed app is refused as a downgrade)
+        versionCode = ((System.currentTimeMillis() / 60000L) - 29000000L).toInt().coerceAtLeast(1)
         versionName = System.getenv("APP_VERSION_NAME") ?: "dev"
         buildConfigField("String", "KICK_CLIENT_ID", "\"01M5S8X89RGBSH22VT02MVMCNP\"")
         // the secret comes from the build environment (GitHub Actions secret), never from the repository

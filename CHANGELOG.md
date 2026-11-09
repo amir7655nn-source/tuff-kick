@@ -72,3 +72,4 @@ All notable changes. Versions before 1.0 were numbered v12 to v33.
 - v69: updated base colour list; friendlier colour error
 - v70: Identity save reports when the level badge could not be saved and also tries the full badge object
 - v71: release workflow also downloads Gradle itself (mirrors)
+- v72: versionCode now grows with time (the release APK had a lower versionCode than a test build, so Android refused it as a downgrade)
