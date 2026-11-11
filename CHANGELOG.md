@@ -73,3 +73,6 @@ All notable changes. Versions before 1.0 were numbered v12 to v33.
 - v70: Identity save reports when the level badge could not be saved and also tries the full badge object
 - v71: release workflow also downloads Gradle itself (mirrors)
 - v72: versionCode now grows with time (the release APK had a lower versionCode than a test build, so Android refused it as a downgrade)
+- v73: landscape chat can be hidden (button in the player controls); channel card (avatar, title, category, bell, heart, Gift a Sub) shows over the chat with the player controls; Home categories load from one quick request, full list in the background
+- v74: back to loading the full category list step by step (v73's parallel loading made the app lag); Home keeps the quick one-request list
+- v75: live ring around the avatar in the channel card is green

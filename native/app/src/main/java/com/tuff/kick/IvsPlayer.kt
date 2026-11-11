@@ -39,6 +39,8 @@ import androidx.media3.common.C
 fun PlayerBoxIvs(
     ci: ChannelInfo, modifier: Modifier, landscape: Boolean, quality: Int, onHeights: (List<Int>) -> Unit,
     onBack: () -> Unit, onRotate: () -> Unit, onShare: () -> Unit, onSettings: () -> Unit,
+    onToggleChat: (() -> Unit)? = null,
+    chatShown: Boolean = true,
 ) {
     val ctx = LocalContext.current
     var muted by remember { mutableStateOf(false) }
@@ -114,7 +116,7 @@ fun PlayerBoxIvs(
         } catch (e: Exception) {
         }
     }
-    LaunchedEffect(controls, tick) {
+    LaunchedEffect(controls, tick, PlayerUi.ping) {
         if (controls) {
             kotlinx.coroutines.delay(5000)
             controls = false
@@ -184,6 +186,7 @@ fun PlayerBoxIvs(
                 onSkip = { d -> seekTo(player.getPosition() + d) },
                 onLive = { try { player.seekTo(player.getDuration()) } catch (e: Exception) { }; tick++ },
                 onRefresh = { error = ""; playing = false; reload++; tick++ },
+                onToggleChat = onToggleChat, chatShown = chatShown,
             )
         }
     }

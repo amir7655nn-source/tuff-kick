@@ -151,6 +151,7 @@ fun WatchScreen(
     val prefs = remember { ctx.getSharedPreferences("tuff", android.content.Context.MODE_PRIVATE) }
     var textSize by remember { mutableStateOf(prefs.getInt("chat_text", 1)) }       // 0 small, 1 normal, 2 large
     var chatOnly by remember { mutableStateOf(false) }
+    var landChat by remember { mutableStateOf(true) }   // landscape: chat beside the stream or hidden
     var showLb by remember { mutableStateOf(prefs.getBoolean("chat_lb", false)) }
     var quick by remember { mutableStateOf(prefs.getBoolean("chat_quick", false)) }
     var lowPower by remember { mutableStateOf(prefs.getBoolean("chat_low", false)) }
@@ -223,6 +224,8 @@ fun WatchScreen(
                         },
                         onShare = { shareText(ctx, "https://kick.com/" + ci.slug) },
                         onSettings = { sheet = 1 },
+                        onToggleChat = if (landscape) ({ landChat = !landChat }) else null,
+                        chatShown = landChat,
                     ) else PlayerBox(
                         ci, m, landscape, quality, { heights = it },
                         onBack = goBack,
@@ -232,6 +235,8 @@ fun WatchScreen(
                         },
                         onShare = { shareText(ctx, "https://kick.com/" + ci.slug) },
                         onSettings = { sheet = 1 },
+                        onToggleChat = if (landscape) ({ landChat = !landChat }) else null,
+                        chatShown = landChat,
                         lowDelay = lowDelay,
                         minDelay = minDelay,
                     )
@@ -266,8 +271,8 @@ fun WatchScreen(
                 val movableChat = remember { androidx.compose.runtime.movableContentOf { m: Modifier -> chatNow(m) } }
                 if (landscape) {
                     Row(Modifier.fillMaxSize().background(Palette.Ink)) {
-                        movablePlayer(Modifier.weight(1.6f).fillMaxHeight())
-                        movableChat(Modifier.weight(1f).fillMaxHeight())
+                        movablePlayer(Modifier.weight(if (landChat) 1.6f else 1f).fillMaxHeight())
+                        if (landChat) movableChat(Modifier.weight(1f).fillMaxHeight())
                     }
                 } else {
                     Column(Modifier.fillMaxSize().background(Palette.Ink).statusBarsPadding()) {
@@ -276,7 +281,14 @@ fun WatchScreen(
                             IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_left), "Back", tint = Color.White) }
                             Text(ci.name, color = Palette.Text, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
                         }
-                        movableChat(Modifier.weight(1f).fillMaxWidth())
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                            movableChat(Modifier.fillMaxSize())
+                            if (!chatOnly) androidx.compose.animation.AnimatedVisibility(
+                                visible = PlayerUi.controls,
+                                enter = androidx.compose.animation.fadeIn(),
+                                exit = androidx.compose.animation.fadeOut(),
+                            ) { ChannelInfoBar(ci, loggedIn, onLogin) }
+                        }
                     }
                 }
             }
@@ -434,6 +446,8 @@ fun PlayerBox(
     onBack: () -> Unit, onRotate: () -> Unit, onShare: () -> Unit, onSettings: () -> Unit,
     lowDelay: Boolean = true,
     minDelay: Boolean = false,
+    onToggleChat: (() -> Unit)? = null,
+    chatShown: Boolean = true,
 ) {
     val ctx = LocalContext.current
     var heights by remember { mutableStateOf(listOf<Int>()) }
@@ -553,7 +567,7 @@ fun PlayerBox(
         player.trackSelectionParameters = b.build()
     }
     // hide the controls a few seconds after the last touch
-    LaunchedEffect(controls, tick) {
+    LaunchedEffect(controls, tick, PlayerUi.ping) {
         if (controls) {
             kotlinx.coroutines.delay(5000)
             controls = false
@@ -629,6 +643,7 @@ fun PlayerBox(
                 onSkip = { d -> seekTo(player.currentPosition + d) },
                 onLive = { shifted = false; player.seekToDefaultPosition(); tick++ },
                 onRefresh = { error = ""; stalls = 0; wasReady = false; shifted = false; reload++; tick++ },
+                onToggleChat = onToggleChat, chatShown = chatShown,
             )
         }
     }
@@ -642,13 +657,18 @@ fun BoxScope.PlayerOverlay(
     onDrag: (Float) -> Unit, onDragEnd: () -> Unit,
     onBack: () -> Unit, onShare: () -> Unit, onSettings: () -> Unit, onRotate: () -> Unit,
     onMute: () -> Unit, onPlayPause: () -> Unit, onSkip: (Long) -> Unit, onLive: () -> Unit, onRefresh: () -> Unit,
+    onToggleChat: (() -> Unit)? = null, chatShown: Boolean = true,
 ) {
+    androidx.compose.runtime.DisposableEffect(Unit) { PlayerUi.controls = true; onDispose { PlayerUi.controls = false } }
     Box(Modifier.fillMaxSize().background(Color(0x55000000)))
     Row(Modifier.align(Alignment.TopStart).fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) {
             Icon(painterResource(if (landscape) R.drawable.ic_arrow_left else R.drawable.ic_chevron_down), "Back", tint = Color.White)
         }
         Box(Modifier.weight(1f))
+        if (onToggleChat != null) Box(
+            Modifier.clip(RoundedCornerShape(14.dp)).background(Color(0x66000000)).clickable { onToggleChat() }.padding(horizontal = 12.dp, vertical = 6.dp),
+        ) { Text(if (chatShown) "Hide chat" else "Show chat", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
         IconButton(onClick = onRefresh) { Icon(painterResource(R.drawable.ic_refresh), "Refresh player", tint = Color.White, modifier = Modifier.size(22.dp)) }
         IconButton(onClick = onShare) { Icon(painterResource(R.drawable.ic_share), "Share", tint = Color.White, modifier = Modifier.size(22.dp)) }
         IconButton(onClick = { onSettings() }) { Icon(painterResource(R.drawable.ic_gear), "Settings", tint = Color.White) }

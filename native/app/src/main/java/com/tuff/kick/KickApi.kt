@@ -469,6 +469,22 @@ fun Live.toStream() = Stream(slug, name, viewers, title, category, "", thumb, av
 object Browse {
     private const val B = KickBridge.BASE
     private var catCache: List<Cat>? = null
+    private var catQuick: List<Cat>? = null
+
+    /** Only the first page of the top list: one request, so the Home tab fills quickly. The full merged list loads in the background. */
+    suspend fun categoriesQuick(): List<Cat> {
+        catCache?.let { return it }
+        catQuick?.let { return it }
+        val l = try {
+            rows(first(listOf("$B/api/v1/categories/top", "$B/api/v1/categories-top", "$B/api/v1/subcategories?limit=60", "$B/api/v1/categories")))
+                .mapNotNull { catRow(it) }.sortedByDescending { it.viewers }
+        } catch (e: KickException) {
+            emptyList()
+        }
+        if (l.isEmpty()) return categories()
+        catQuick = l
+        return l
+    }
 
     private suspend fun first(urls: List<String>, auth: Boolean = false): Any {
         var last = "unreachable"
@@ -753,7 +769,7 @@ object Browse {
         val unofficial = try {
             val d = first(listOf("$B/api/v1/categories/top", "$B/api/v1/categories-top", "$B/api/v1/subcategories?limit=60", "$B/api/v1/categories"))
             val all = ArrayList(rows(d).mapNotNull { catRow(it) })
-            // more pages of the same list: lower categories carry their viewer counts there
+            // more pages of the same list, one after the other: lower categories carry their viewer counts there
             for (pg in 2..6) {
                 val more = try {
                     rows(first(listOf("$B/api/v1/subcategories?limit=60&page=$pg"))).mapNotNull { catRow(it) }
@@ -767,6 +783,8 @@ object Browse {
         } catch (e: KickException) {
             emptyList()
         }
+        val views = HashMap<String, Int>()
+        for (c in unofficial) { views[c.slug] = c.viewers; views[c.name.lowercase()] = c.viewers }
         var official = emptyList<Cat>()
         if (KickOAuth.available()) {
             try {
@@ -774,18 +792,16 @@ object Browse {
             } catch (e: KickException) {
             }
         }
-        val views = HashMap<String, Int>()
-        for (c in unofficial) { views[c.slug] = c.viewers; views[c.name.lowercase()] = c.viewers }
+        val sums = HashMap<String, Int>()
         try {
-            val sums = HashMap<String, Int>()
             for (st in live(null, 8)) {
                 if (st.categorySlug.isEmpty()) continue
                 sums[st.categorySlug] = (sums[st.categorySlug] ?: 0) + st.viewers
                 sums[st.category.lowercase()] = (sums[st.category.lowercase()] ?: 0) + st.viewers
             }
-            for ((k, v) in sums) if ((views[k] ?: 0) < v) views[k] = v
         } catch (e: KickException) {
         }
+        for ((k, v) in sums) if ((views[k] ?: 0) < v) views[k] = v
         var res = if (official.size >= unofficial.size) official else unofficial
         if (res.isEmpty()) {
             val m = LinkedHashMap<String, Cat>()

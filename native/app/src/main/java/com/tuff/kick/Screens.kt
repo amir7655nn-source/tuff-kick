@@ -59,7 +59,7 @@ import androidx.compose.ui.unit.sp
 fun HomeScreen(nav: Nav, bottomPad: androidx.compose.ui.unit.Dp) {
     val featured = rememberLoader("home-featured") { Browse.featured() }
     val forYou = rememberLoader("home-live") { Browse.live(null, 2) }
-    val cats = rememberLoader("home-cats") { Browse.categories() }
+    val cats = rememberLoader("home-cats") { Browse.categoriesQuick() }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         SectionTitle("Featured Creators")
         LoadView(featured, skeleton = { SkeletonStreamRow() }) { list -> StreamRow(list.take(12), nav) }
